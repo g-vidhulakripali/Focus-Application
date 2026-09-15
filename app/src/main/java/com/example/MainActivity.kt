@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.service.FocusTimerEngine
 import com.example.ui.screens.DailyAnalyticsScreen
 import com.example.ui.screens.GroveScreen
 import com.example.ui.screens.QuestsAndRpgScreen
@@ -88,6 +89,11 @@ class MainActivity : ComponentActivity() {
                 ThesisGroveApp()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        FocusTimerEngine.syncWithRealtime(this)
     }
 }
 

@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Pause
@@ -88,6 +93,10 @@ fun TimerScreen(
     val goalMinutes = profile?.dailyGoalMinutes ?: 120
     val streakDays = profile?.currentStreak ?: 0
     val userLevel = profile?.scholarLevel ?: 1
+
+    val notificationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ -> }
 
     val scrollState = rememberScrollState()
 
@@ -216,6 +225,42 @@ fun TimerScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
+
+            // Sleep Mode Indicator Badge
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = if (timerState.isRunning) Color(0xFF10B981).copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (timerState.isRunning) Color(0xFF10B981).copy(alpha = 0.35f) else Color.Transparent
+                ),
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .testTag("sleep_mode_badge")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Bedtime,
+                        contentDescription = null,
+                        tint = if (timerState.isRunning) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (timerState.isRunning) {
+                            if (timerState.isPaused) "Sleep Mode Paused" else "Sleep Mode Active • Runs even when mobile sleeps"
+                        } else {
+                            "Sleep Mode Ready • Keeps running when screen turns off"
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (timerState.isRunning) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -472,7 +517,15 @@ fun TimerScreen(
 
                 // START QUEST BUTTON
                 Button(
-                    onClick = { viewModel.startTimer() },
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            try {
+                                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } catch (_: Exception) {
+                            }
+                        }
+                        viewModel.startTimer()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
