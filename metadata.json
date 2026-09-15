@@ -1,0 +1,6 @@
+{
+  "name": "Thesis Grove",
+  "description": "Gamified RPG focus timer for thesis work with mythical tree cultivation, character levels, quests, daily work goals, and streak tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
