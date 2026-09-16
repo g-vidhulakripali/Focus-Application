@@ -21,6 +21,9 @@ interface FocusSessionDao {
     @Query("SELECT SUM(durationMinutes) FROM focus_sessions WHERE dateString = :dateStr AND isCompleted = 1")
     fun getTotalMinutesForDate(dateStr: String): Flow<Int?>
 
+    @Query("SELECT SUM(durationMinutes) FROM focus_sessions WHERE dateString = :dateStr AND isCompleted = 1")
+    suspend fun getTotalMinutesForDateSync(dateStr: String): Int?
+
     @Query("SELECT SUM(durationMinutes) FROM focus_sessions WHERE isCompleted = 1")
     fun getTotalMinutesAllTime(): Flow<Int?>
 

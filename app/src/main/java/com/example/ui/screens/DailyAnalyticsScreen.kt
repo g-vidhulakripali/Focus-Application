@@ -21,7 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Schedule
@@ -147,8 +148,11 @@ fun DailyAnalyticsScreen(
                                 modifier = Modifier.size(13.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
+                            val goalH = goalMinutes / 60
+                            val goalMRem = goalMinutes % 60
+                            val goalText = if (goalH > 0 && goalMRem > 0) "${goalH}h ${goalMRem}m" else if (goalH > 0) "${goalH}h" else "${goalMinutes}m"
                             Text(
-                                text = "Goal: ${goalMinutes}m",
+                                text = "Goal: $goalText",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -173,9 +177,13 @@ fun DailyAnalyticsScreen(
                     )
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        val hours = todayMinutes / 60
+                        val mins = todayMinutes % 60
+                        val displayMinutes = if (hours > 0) "${hours}h ${mins}m" else "${todayMinutes}m"
+
                         Text(
-                            text = "${todayMinutes}m",
-                            fontSize = 32.sp,
+                            text = displayMinutes,
+                            fontSize = if (hours > 0) 26.sp else 32.sp,
                             fontWeight = FontWeight.Black,
                             color = Color.White
                         )
@@ -250,9 +258,10 @@ fun DailyAnalyticsScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    val presetGoals = listOf(60, 90, 120, 180, 240)
+                    val presetGoals = listOf(60, 120, 180, 240, 300, 360, 420, 480)
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         presetGoals.forEach { preset ->
@@ -262,7 +271,7 @@ fun DailyAnalyticsScreen(
                                     tempGoalSlider = preset.toFloat()
                                     viewModel.updateDailyGoal(preset)
                                 },
-                                label = { Text("${preset}m (${preset / 60}h)") },
+                                label = { Text("${preset / 60}h (${preset}m)") },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = Color(0xFF10B981),
                                     selectedLabelColor = Color.Black
@@ -275,21 +284,32 @@ fun DailyAnalyticsScreen(
 
                     Slider(
                         value = tempGoalSlider,
-                        onValueChange = { tempGoalSlider = it },
+                        onValueChange = {
+                            tempGoalSlider = (Math.round(it / 15f) * 15).coerceIn(30, 480).toFloat()
+                        },
                         onValueChangeFinished = {
                             viewModel.updateDailyGoal(tempGoalSlider.toInt())
                         },
-                        valueRange = 30f..360f,
-                        steps = 10,
+                        valueRange = 30f..480f,
                         colors = SliderDefaults.colors(
                             thumbColor = Color(0xFF10B981),
                             activeTrackColor = Color(0xFF10B981)
                         )
                     )
 
+                    val targetH = tempGoalSlider.toInt() / 60
+                    val targetM = tempGoalSlider.toInt() % 60
+                    val targetDesc = if (targetH > 0 && targetM > 0) {
+                        "${targetH} hours ${targetM} mins (${tempGoalSlider.toInt()}m)"
+                    } else if (targetH > 0) {
+                        "${targetH} hours (${tempGoalSlider.toInt()}m)"
+                    } else {
+                        "${tempGoalSlider.toInt()} minutes"
+                    }
+
                     Text(
-                        text = "Target: ${tempGoalSlider.toInt()} minutes / day",
-                        fontSize = 12.sp,
+                        text = "Target: $targetDesc / day",
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF10B981),
                         modifier = Modifier.fillMaxWidth(),
@@ -517,6 +537,92 @@ fun DailyAnalyticsScreen(
                                 .clip(RoundedCornerShape(3.dp)),
                             color = Color(tag.colorLong),
                             trackColor = MaterialTheme.colorScheme.surface
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Recorded Sessions Detail List
+            Text(
+                text = "TODAY'S RECORDED LOGS (${todaySessions.size})",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            todaySessions.forEach { session ->
+                val tag = ThesisTaskTag.fromId(session.taskTag)
+                val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+                val startTimeStr = timeFormat.format(Date(session.startTime))
+                val isBonus = session.note.contains("Bonus")
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (session.isCompleted) Color(0xFF10B981).copy(alpha = 0.25f) else Color(0xFFEF4444).copy(alpha = 0.25f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (session.isCompleted) Icons.Filled.Done else Icons.Filled.Close,
+                                contentDescription = null,
+                                tint = if (session.isCompleted) Color(0xFF10B981) else Color(0xFFEF4444),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = tag.label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(tag.colorLong)
+                                    )
+                                    if (isBonus) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFFF59E0B).copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = "🌟 Bonus",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFFBBF24),
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    text = "Started at $startTimeStr • ${if (session.isCompleted) "+${session.xpEarned} XP" else "Withered"}",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "${session.durationMinutes} min",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Black,
+                            color = if (session.isCompleted) Color.White else Color(0xFF9E9E9E)
                         )
                     }
                 }

@@ -89,8 +89,9 @@ fun GroveScreen(
         else -> allSessions
     }
 
-    val totalHours = completedSessions.sumOf { it.durationMinutes } / 60
-    val totalMins = completedSessions.sumOf { it.durationMinutes } % 60
+    val totalMinutesExact = completedSessions.sumOf { it.durationMinutes }
+    val totalHours = totalMinutesExact / 60
+    val totalMins = totalMinutesExact % 60
     val witheredCount = allSessions.count { !it.isCompleted }
 
     Column(
@@ -138,8 +139,8 @@ fun GroveScreen(
                         accentColor = Color(0xFF34D399)
                     )
                     GroveStatItem(
-                        label = "Deep Hours",
-                        value = if (totalHours > 0) "${totalHours}h ${totalMins}m" else "${totalMins}m",
+                        label = "Exact Focus Time",
+                        value = if (totalHours > 0) "${totalHours}h ${totalMins}m" else "${totalMinutesExact}m",
                         accentColor = Color(0xFFFBBF24)
                     )
                     GroveStatItem(
@@ -331,20 +332,41 @@ fun GroveScreen(
 
                             Spacer(modifier = Modifier.height(4.dp))
 
-                            // Task Tag Chip
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(tag.colorLong).copy(alpha = 0.2f)
+                            // Task Tag Chip & Bonus badge
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
                             ) {
-                                Text(
-                                    text = tag.label,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(tag.colorLong),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(tag.colorLong).copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = tag.label,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(tag.colorLong),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                if (session.note.contains("Bonus")) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFF59E0B).copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = "🌟 Bonus",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFBBF24),
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(6.dp))
@@ -359,7 +381,7 @@ fun GroveScreen(
                                     text = "${session.durationMinutes}m",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                     text = "+${session.xpEarned} XP",
@@ -382,6 +404,7 @@ fun GroveScreen(
         val tag = ThesisTaskTag.fromId(session.taskTag)
         val sdf = SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.getDefault())
         val formattedDate = sdf.format(Date(session.startTime))
+        val isBonus = session.note.contains("Bonus")
 
         AlertDialog(
             onDismissRequest = { selectedTreeDetails = null },
@@ -395,7 +418,9 @@ fun GroveScreen(
             },
             title = {
                 Text(
-                    text = if (session.isCompleted) species.displayName else "Withered Tree",
+                    text = if (session.isCompleted) {
+                        if (isBonus) "🌟 ${species.displayName} (Bonus)" else species.displayName
+                    } else "Withered Tree",
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center
                 )
@@ -406,7 +431,9 @@ fun GroveScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = if (session.isCompleted) species.description else "This session was abandoned early.",
+                        text = if (session.isCompleted) {
+                            if (isBonus) "This tree grew beyond its sprint goal with bonus overtime focus!" else species.description
+                        } else "This session was stopped before the sprint goal, withering the tree.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -421,7 +448,10 @@ fun GroveScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             InfoRow(label = "Thesis Category", value = tag.label)
-                            InfoRow(label = "Focus Duration", value = "${session.durationMinutes} minutes")
+                            InfoRow(label = "Exact Focus Duration", value = "${session.durationMinutes} minutes")
+                            if (isBonus) {
+                                InfoRow(label = "Sprint Status", value = "🌟 Bonus Harvest Achieved")
+                            }
                             InfoRow(label = "Arcane XP", value = "+${session.xpEarned} XP")
                             InfoRow(label = "Planted On", value = formattedDate)
                             if (session.note.isNotBlank()) {

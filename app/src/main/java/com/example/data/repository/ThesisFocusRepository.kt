@@ -207,7 +207,7 @@ class ThesisFocusRepository(
         // Streak check
         val todayStr = getTodayDateString()
         val yesterdayStr = getYesterdayDateString()
-        val todayMinutes = sessionDao.getTotalMinutesForDate(todayStr).firstOrNull() ?: 0
+        val todayMinutes = sessionDao.getTotalMinutesForDateSync(todayStr) ?: 0
         val goalMinutes = currentProfile.dailyGoalMinutes
 
         var streak = currentProfile.currentStreak
@@ -251,7 +251,7 @@ class ThesisFocusRepository(
         val profile = profileDao.getProfileOnce() ?: return
         val todayStr = getTodayDateString()
         val yesterdayStr = getYesterdayDateString()
-        val todayMinutes = sessionDao.getTotalMinutesForDate(todayStr).firstOrNull() ?: 0
+        val todayMinutes = sessionDao.getTotalMinutesForDateSync(todayStr) ?: 0
 
         if (todayMinutes >= goalMinutes && profile.lastStreakDate != todayStr) {
             val newStreak = if (profile.lastStreakDate == yesterdayStr) {

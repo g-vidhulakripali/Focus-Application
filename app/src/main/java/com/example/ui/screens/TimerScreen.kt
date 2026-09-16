@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -198,30 +199,97 @@ fun TimerScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Large Digital Countdown Timer
-            val minutes = timerState.remainingSeconds / 60
-            val seconds = timerState.remainingSeconds % 60
-            val timeString = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+            // Large Digital Countdown / Overtime Timer
+            val timeString = if (timerState.isOvertime) {
+                val totalSec = timerState.elapsedSeconds
+                val totalM = totalSec / 60
+                val totalS = totalSec % 60
+                if (totalM >= 60) {
+                    val h = totalM / 60
+                    val m = totalM % 60
+                    String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, totalS)
+                } else {
+                    String.format(Locale.getDefault(), "%02d:%02d", totalM, totalS)
+                }
+            } else {
+                val minutes = timerState.remainingSeconds / 60
+                val seconds = timerState.remainingSeconds % 60
+                if (minutes >= 60) {
+                    val h = minutes / 60
+                    val m = minutes % 60
+                    String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, seconds)
+                } else {
+                    String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+                }
+            }
 
             Text(
                 text = timeString,
                 fontSize = 58.sp,
                 fontWeight = FontWeight.Black,
                 letterSpacing = 2.sp,
-                color = if (timerState.isWithered) Color(0xFF9E9E9E) else Color(0xFFF1F5F9),
+                color = when {
+                    timerState.isWithered -> Color(0xFF9E9E9E)
+                    timerState.isOvertime -> Color(0xFFFBBF24)
+                    else -> Color(0xFFF1F5F9)
+                },
                 modifier = Modifier.testTag("timer_display_text")
             )
+
+            // Overtime bonus badge when sprint surpassed
+            if (timerState.isOvertime) {
+                val otSec = timerState.overtimeSeconds
+                val otM = otSec / 60
+                val otS = otSec % 60
+                val otFormatted = if (otM >= 60) "+%02d:%02d:%02d".format(otM / 60, otM % 60, otS) else "+%02d:%02d".format(otM, otS)
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFF59E0B).copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, Color(0xFFFBBF24).copy(alpha = 0.7f)),
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .testTag("overtime_bonus_badge")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WorkspacePremium,
+                            contentDescription = null,
+                            tint = Color(0xFFFBBF24),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "SPRINT SURPASSED • $otFormatted BONUS OVERTIME",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFBBF24)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Dynamic Encouragement Quote / Status
             Text(
                 text = when {
                     timerState.isWithered -> "Your sapling withered. Rekindle your focus to plant anew!"
+                    timerState.isRunning && timerState.isPaused && timerState.isOvertime -> "Bonus overtime paused. Resume or harvest your thriving tree!"
                     timerState.isRunning && timerState.isPaused -> "Quest paused. Resume to keep growing your thesis tree."
+                    timerState.isRunning && timerState.isOvertime -> "🌟 Sprint goal surpassed! Overtime bonus is actively counting."
                     timerState.isRunning -> "Deep in thesis focus... do not wander away!"
                     else -> "Plant a tree to cultivate your thesis chapter."
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (timerState.isWithered) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = when {
+                    timerState.isWithered -> Color(0xFFEF4444)
+                    timerState.isOvertime -> Color(0xFFFBBF24)
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
@@ -266,27 +334,44 @@ fun TimerScreen(
 
             // Control Buttons & Setup
             if (timerState.isRunning) {
-                // Running controls: Pause/Resume and Abandon
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Abandon Button
-                    OutlinedButton(
-                        onClick = { viewModel.promptAbandon() },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color(0xFFF87171)
-                        ),
-                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .height(52.dp)
-                            .testTag("abandon_button")
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Give Up")
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Give Up", fontWeight = FontWeight.SemiBold)
+                    if (timerState.isOvertime) {
+                        // Beyond sprint: Stop & Harvest with Bonus
+                        Button(
+                            onClick = { viewModel.completeTimer() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF10B981)
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .height(52.dp)
+                                .testTag("harvest_button")
+                        ) {
+                            Icon(Icons.Filled.Done, contentDescription = "Harvest", tint = Color.Black)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Harvest (+Bonus)", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        // Below sprint: Give Up (withers tree)
+                        OutlinedButton(
+                            onClick = { viewModel.promptAbandon() },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFFF87171)
+                            ),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .height(52.dp)
+                                .testTag("abandon_button")
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Give Up")
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Give Up", fontWeight = FontWeight.SemiBold)
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(16.dp))
@@ -348,7 +433,7 @@ fun TimerScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                val durations = listOf(15, 25, 45, 60, 90)
+                val durations = listOf(15, 25, 45, 60, 90, 120, 180, 240)
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -365,6 +450,9 @@ fun TimerScreen(
                                         25 -> "25m (Pomodoro)"
                                         60 -> "60m (Deep Draft)"
                                         90 -> "90m (Lit Sprint)"
+                                        120 -> "120m (2h)"
+                                        180 -> "180m (3h)"
+                                        240 -> "240m (4h)"
                                         else -> "${duration}m"
                                     },
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -556,6 +644,9 @@ fun TimerScreen(
 
         // Abandon Confirmation Dialog
         if (timerState.showAbandonDialog) {
+            val elapsedMins = timerState.elapsedSeconds / 60
+            val goalMins = timerState.totalDurationSeconds / 60
+
             AlertDialog(
                 onDismissRequest = { viewModel.dismissAbandonDialog() },
                 icon = {
@@ -574,11 +665,20 @@ fun TimerScreen(
                     )
                 },
                 text = {
-                    Text(
-                        text = "Giving up now will wither your growing tree into dry ash. Are you sure you want to stop working on your thesis?",
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "You have focused for ${elapsedMins}m of your ${goalMins}m sprint goal.",
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            color = Color(0xFFF87171)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Stopping now before the sprint finishes will wither your tree into ash. Are you sure you want to stop?",
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 },
                 confirmButton = {
                     Button(
@@ -604,6 +704,8 @@ fun TimerScreen(
         if (timerState.showCelebrationDialog && timerState.lastCompletedSession != null) {
             val session = timerState.lastCompletedSession!!
             val species = TreeSpecies.fromId(session.treeSpeciesId)
+            val isBonus = session.note.contains("Bonus") || session.durationMinutes > (timerState.totalDurationSeconds / 60)
+            val bonusMins = (session.durationMinutes - (timerState.totalDurationSeconds / 60)).coerceAtLeast(0)
 
             AlertDialog(
                 onDismissRequest = { viewModel.dismissCelebration() },
@@ -613,21 +715,21 @@ fun TimerScreen(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF10B981).copy(alpha = 0.2f))
+                            .background(if (isBonus) Color(0xFFF59E0B).copy(alpha = 0.2f) else Color(0xFF10B981).copy(alpha = 0.2f))
                     ) {
                         Icon(
                             imageVector = Icons.Default.WorkspacePremium,
                             contentDescription = null,
-                            tint = Color(0xFFFBBF24),
+                            tint = if (isBonus) Color(0xFFFBBF24) else Color(0xFF10B981),
                             modifier = Modifier.size(36.dp)
                         )
                     }
                 },
                 title = {
                     Text(
-                        text = "Thesis Quest Complete!",
+                        text = if (isBonus) "🌟 Bonus Quest Mastered!" else "Thesis Quest Complete!",
                         fontWeight = FontWeight.Black,
-                        color = Color(0xFF10B981),
+                        color = if (isBonus) Color(0xFFFBBF24) else Color(0xFF10B981),
                         textAlign = TextAlign.Center
                     )
                 },
@@ -637,7 +739,11 @@ fun TimerScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "You successfully cultivated a majestic ${species.displayName}!",
+                            text = if (isBonus) {
+                                "Extraordinary devotion! Your ${species.displayName} grew far beyond its goal with bonus overtime!"
+                            } else {
+                                "You successfully cultivated a majestic ${species.displayName}!"
+                            },
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodyMedium
@@ -658,9 +764,21 @@ fun TimerScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("Duration Focused:", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("${session.durationMinutes} minutes", fontWeight = FontWeight.Bold)
+                                    Text("Exact Time Recorded:", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${session.durationMinutes} minutes", fontWeight = FontWeight.Bold, color = Color.White)
                                 }
+
+                                if (isBonus && bonusMins > 0) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Overtime Bonus:", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("+$bonusMins minutes bonus! 🎉", fontWeight = FontWeight.Bold, color = Color(0xFF34D399))
+                                    }
+                                }
+
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Row(
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -684,7 +802,7 @@ fun TimerScreen(
                 confirmButton = {
                     Button(
                         onClick = { viewModel.dismissCelebration() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isBonus) Color(0xFFF59E0B) else Color(0xFF10B981)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("dismiss_celebration_button")

@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -52,13 +53,21 @@ class ThesisFocusViewModel(application: Application) : AndroidViewModel(applicat
     val allQuests: StateFlow<List<ThesisMilestoneQuestEntity>> = repository.allQuests
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val todayDateStr = repository.getTodayDateString()
+    val todayDateStr: String
+        get() = repository.getTodayDateString()
 
-    val todaySessions: StateFlow<List<FocusSessionEntity>> = repository.getSessionsForDate(todayDateStr)
+    val todaySessions: StateFlow<List<FocusSessionEntity>> = repository.allSessions
+        .map { list ->
+            val today = repository.getTodayDateString()
+            list.filter { it.dateString == today }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val todayMinutes: StateFlow<Int> = repository.getMinutesForDate(todayDateStr)
-        .combine(MutableStateFlow(0)) { minutes, _ -> minutes ?: 0 }
+    val todayMinutes: StateFlow<Int> = repository.completedSessions
+        .map { list ->
+            val today = repository.getTodayDateString()
+            list.filter { it.dateString == today }.sumOf { it.durationMinutes }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val weeklyStats: StateFlow<List<DayFocusStat>> = repository.allSessions
@@ -132,6 +141,19 @@ class ThesisFocusViewModel(application: Application) : AndroidViewModel(applicat
 
     fun syncWithRealtime() {
         FocusTimerEngine.syncWithRealtime(getApplication())
+    }
+
+    fun completeTimer() {
+        FocusTimerEngine.completeSession(getApplication())
+    }
+
+    fun stopTimer() {
+        val state = FocusTimerEngine.timerState.value
+        if (state.isOvertime) {
+            FocusTimerEngine.completeSession(getApplication())
+        } else {
+            FocusTimerEngine.promptAbandon()
+        }
     }
 
     fun promptAbandon() {

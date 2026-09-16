@@ -25,8 +25,11 @@ import kotlinx.coroutines.launch
 data class TimerUiState(
     val isRunning: Boolean = false,
     val isPaused: Boolean = false,
-    val totalDurationSeconds: Int = 25 * 60,
-    val remainingSeconds: Int = 25 * 60,
+    val totalDurationSeconds: Int = 15 * 60, // Sprint target duration (e.g. 15m)
+    val remainingSeconds: Int = 15 * 60,
+    val elapsedSeconds: Int = 0,
+    val isOvertime: Boolean = false,
+    val overtimeSeconds: Int = 0,
     val selectedTaskTag: ThesisTaskTag = ThesisTaskTag.CHAPTER_WRITING,
     val selectedTreeSpecies: TreeSpecies = TreeSpecies.SEEDLING_OF_CLARITY,
     val sessionNotes: String = "",
@@ -37,7 +40,7 @@ data class TimerUiState(
 ) {
     val progress: Float
         get() = if (totalDurationSeconds > 0) {
-            1f - (remainingSeconds.toFloat() / totalDurationSeconds.toFloat()).coerceIn(0f, 1f)
+            (elapsedSeconds.toFloat() / totalDurationSeconds.toFloat()).coerceIn(0f, 1f)
         } else 0f
 }
 
@@ -47,8 +50,11 @@ object FocusTimerEngine {
     private val _timerState = MutableStateFlow(TimerUiState())
     val timerState: StateFlow<TimerUiState> = _timerState.asStateFlow()
 
-    private var targetEndRealtime: Long = 0L
     private var sessionStartTimeWall: Long = 0L
+    private var accumulatedElapsedMillis: Long = 0L
+    private var segmentStartRealtime: Long = 0L
+    private var hasTriggeredMilestone: Boolean = false
+
     private var tickerJob: Job? = null
     private var repository: ThesisFocusRepository? = null
 
@@ -64,6 +70,19 @@ object FocusTimerEngine {
         return repository!!
     }
 
+    fun getElapsedMillis(): Long {
+        val state = _timerState.value
+        return if (state.isRunning && !state.isPaused && segmentStartRealtime > 0L) {
+            accumulatedElapsedMillis + (SystemClock.elapsedRealtime() - segmentStartRealtime)
+        } else {
+            accumulatedElapsedMillis
+        }
+    }
+
+    fun getElapsedSeconds(): Int {
+        return (getElapsedMillis() / 1000L).toInt().coerceAtLeast(0)
+    }
+
     fun selectDuration(minutes: Int) {
         if (!_timerState.value.isRunning) {
             val seconds = minutes * 60
@@ -71,6 +90,9 @@ object FocusTimerEngine {
                 it.copy(
                     totalDurationSeconds = seconds,
                     remainingSeconds = seconds,
+                    elapsedSeconds = 0,
+                    isOvertime = false,
+                    overtimeSeconds = 0,
                     isWithered = false
                 )
             }
@@ -93,8 +115,11 @@ object FocusTimerEngine {
         if (_timerState.value.isRunning) return
 
         sessionStartTimeWall = System.currentTimeMillis()
-        val durationSec = _timerState.value.totalDurationSeconds
-        targetEndRealtime = SystemClock.elapsedRealtime() + (durationSec * 1000L)
+        accumulatedElapsedMillis = 0L
+        segmentStartRealtime = SystemClock.elapsedRealtime()
+        hasTriggeredMilestone = false
+
+        val targetSec = _timerState.value.totalDurationSeconds
 
         _timerState.update {
             it.copy(
@@ -102,14 +127,17 @@ object FocusTimerEngine {
                 isPaused = false,
                 isWithered = false,
                 showAbandonDialog = false,
-                remainingSeconds = durationSec
+                elapsedSeconds = 0,
+                remainingSeconds = targetSec,
+                isOvertime = false,
+                overtimeSeconds = 0
             )
         }
 
-        // Launch the foreground service to keep CPU awake during mobile sleep mode
+        // Launch the foreground service to run even when mobile sleeps
         FocusTimerService.startService(
             context = context,
-            durationSeconds = durationSec,
+            durationSeconds = targetSec,
             taskTag = _timerState.value.selectedTaskTag.label,
             treeSpecies = _timerState.value.selectedTreeSpecies.displayName
         )
@@ -118,28 +146,63 @@ object FocusTimerEngine {
     }
 
     fun pauseSession(context: Context) {
-        if (!_timerState.value.isRunning || _timerState.value.isPaused) return
-        syncWithRealtime(context)
+        val currentState = _timerState.value
+        if (!currentState.isRunning || currentState.isPaused) return
+
+        if (segmentStartRealtime > 0L) {
+            accumulatedElapsedMillis += (SystemClock.elapsedRealtime() - segmentStartRealtime)
+            segmentStartRealtime = 0L
+        }
 
         tickerJob?.cancel()
-        _timerState.update { it.copy(isPaused = true) }
 
-        FocusTimerService.pauseService(context)
+        val elapsedSec = (accumulatedElapsedMillis / 1000L).toInt()
+        val targetSec = currentState.totalDurationSeconds
+        val isOvertime = elapsedSec >= targetSec
+        val remainingSec = if (isOvertime) 0 else (targetSec - elapsedSec)
+        val overtimeSec = if (isOvertime) (elapsedSec - targetSec) else 0
+
+        _timerState.update {
+            it.copy(
+                isPaused = true,
+                elapsedSeconds = elapsedSec,
+                remainingSeconds = remainingSec,
+                isOvertime = isOvertime,
+                overtimeSeconds = overtimeSec
+            )
+        }
+
+        FocusTimerService.pauseService(context, elapsedSec, targetSec)
     }
 
     fun resumeSession(context: Context) {
-        if (!_timerState.value.isRunning || !_timerState.value.isPaused) return
+        val currentState = _timerState.value
+        if (!currentState.isRunning || !currentState.isPaused) return
 
-        val remainingSec = _timerState.value.remainingSeconds
-        targetEndRealtime = SystemClock.elapsedRealtime() + (remainingSec * 1000L)
+        segmentStartRealtime = SystemClock.elapsedRealtime()
 
-        _timerState.update { it.copy(isPaused = false) }
+        val elapsedSec = (accumulatedElapsedMillis / 1000L).toInt()
+        val targetSec = currentState.totalDurationSeconds
+        val isOvertime = elapsedSec >= targetSec
+        val remainingSec = if (isOvertime) 0 else (targetSec - elapsedSec)
+        val overtimeSec = if (isOvertime) (elapsedSec - targetSec) else 0
+
+        _timerState.update {
+            it.copy(
+                isPaused = false,
+                elapsedSeconds = elapsedSec,
+                remainingSeconds = remainingSec,
+                isOvertime = isOvertime,
+                overtimeSeconds = overtimeSec
+            )
+        }
 
         FocusTimerService.resumeService(
             context = context,
-            remainingSeconds = remainingSec,
-            taskTag = _timerState.value.selectedTaskTag.label,
-            treeSpecies = _timerState.value.selectedTreeSpecies.displayName
+            elapsedSeconds = elapsedSec,
+            targetDurationSeconds = targetSec,
+            taskTag = currentState.selectedTaskTag.label,
+            treeSpecies = currentState.selectedTreeSpecies.displayName
         )
 
         startTicker(context)
@@ -154,12 +217,23 @@ object FocusTimerEngine {
     }
 
     fun confirmAbandon(context: Context) {
+        val currentState = _timerState.value
+        if (!currentState.isRunning) return
+
         tickerJob?.cancel()
         FocusTimerService.stopService(context)
 
-        val currentState = _timerState.value
-        val elapsedSeconds = (currentState.totalDurationSeconds - currentState.remainingSeconds).coerceAtLeast(0)
-        val elapsedMinutes = (elapsedSeconds / 60).coerceAtLeast(1)
+        val elapsedSec = getElapsedSeconds()
+        val targetSec = currentState.totalDurationSeconds
+
+        if (elapsedSec >= targetSec) {
+            // Already beyond sprint: user gets the bonus harvest!
+            completeSession(context)
+            return
+        }
+
+        // Below focus sprint: withering as requested
+        val elapsedMinutes = (elapsedSec / 60).coerceAtLeast(1)
 
         scope.launch {
             val session = getRepository(context).recordSession(
@@ -169,16 +243,23 @@ object FocusTimerEngine {
                 taskTag = currentState.selectedTaskTag.id,
                 treeSpeciesId = currentState.selectedTreeSpecies.id,
                 isCompleted = false,
-                notes = "Session abandoned early"
+                notes = if (currentState.sessionNotes.isNotBlank()) {
+                    "${currentState.sessionNotes} (Withered at ${elapsedMinutes}m of ${targetSec / 60}m goal)"
+                } else {
+                    "Withered at ${elapsedMinutes}m of ${targetSec / 60}m goal"
+                }
             )
 
             _timerState.update {
                 it.copy(
                     isRunning = false,
                     isPaused = false,
+                    elapsedSeconds = 0,
+                    remainingSeconds = it.totalDurationSeconds,
+                    isOvertime = false,
+                    overtimeSeconds = 0,
                     isWithered = true,
                     showAbandonDialog = false,
-                    remainingSeconds = it.totalDurationSeconds,
                     lastCompletedSession = session
                 )
             }
@@ -194,36 +275,36 @@ object FocusTimerEngine {
     }
 
     /**
-     * Ticks the countdown. Uses [SystemClock.elapsedRealtime] which monotonically counts
-     * across mobile sleep and doze states, guaranteeing 100% time accuracy.
+     * Ticks the countdown/countup. Uses [SystemClock.elapsedRealtime] which monotonically counts
+     * across mobile sleep and doze states, guaranteeing 100% time accuracy without capping.
      */
     fun tick(context: Context) {
-        if (!_timerState.value.isRunning || _timerState.value.isPaused) return
-
-        val nowRealtime = SystemClock.elapsedRealtime()
-        val remainingMillis = targetEndRealtime - nowRealtime
-        val remainingSec = ((remainingMillis + 999L) / 1000L).toInt()
-
-        if (remainingSec <= 0) {
-            _timerState.update { it.copy(remainingSeconds = 0) }
-            tickerJob?.cancel()
-            completeSession(context)
-        } else {
-            _timerState.update { it.copy(remainingSeconds = remainingSec) }
-        }
+        syncWithRealtime(context)
     }
 
     fun syncWithRealtime(context: Context) {
-        if (_timerState.value.isRunning && !_timerState.value.isPaused) {
-            val nowRealtime = SystemClock.elapsedRealtime()
-            val remainingMillis = targetEndRealtime - nowRealtime
-            val remainingSec = ((remainingMillis + 999L) / 1000L).toInt()
-            if (remainingSec <= 0) {
-                tickerJob?.cancel()
-                completeSession(context)
-            } else {
-                _timerState.update { it.copy(remainingSeconds = remainingSec) }
-            }
+        val currentState = _timerState.value
+        if (!currentState.isRunning || currentState.isPaused) return
+
+        val elapsedSec = getElapsedSeconds()
+        val targetSec = currentState.totalDurationSeconds
+        val isOvertime = elapsedSec >= targetSec
+        val remainingSec = if (isOvertime) 0 else (targetSec - elapsedSec)
+        val overtimeSec = if (isOvertime) (elapsedSec - targetSec) else 0
+
+        if (isOvertime && !hasTriggeredMilestone) {
+            hasTriggeredMilestone = true
+            triggerMilestoneHaptic(context)
+            FocusTimerService.notifySprintMilestone(context, currentState.selectedTreeSpecies.displayName)
+        }
+
+        _timerState.update {
+            it.copy(
+                elapsedSeconds = elapsedSec,
+                remainingSeconds = remainingSec,
+                isOvertime = isOvertime,
+                overtimeSeconds = overtimeSec
+            )
         }
     }
 
@@ -238,38 +319,56 @@ object FocusTimerEngine {
     }
 
     fun completeSession(context: Context) {
-        if (!_timerState.value.isRunning) return
-
         val currentState = _timerState.value
-        val durationMinutes = currentState.totalDurationSeconds / 60
+        if (!currentState.isRunning) return
+
+        val elapsedSec = getElapsedSeconds()
+        val targetSec = currentState.totalDurationSeconds
+        val exactMinutes = (elapsedSec / 60).coerceAtLeast(targetSec / 60)
+        val bonusMinutes = (exactMinutes - (targetSec / 60)).coerceAtLeast(0)
         val endTime = System.currentTimeMillis()
 
-        triggerHaptic(context)
+        tickerJob?.cancel()
+        FocusTimerService.stopService(context)
 
-        // Inform the foreground service that session completed so it can post the celebration notification
         FocusTimerService.notifyCompletion(
             context = context,
             treeSpecies = currentState.selectedTreeSpecies.displayName,
-            durationMinutes = durationMinutes
+            durationMinutes = exactMinutes,
+            bonusMinutes = bonusMinutes
         )
 
+        triggerMilestoneHaptic(context)
+
         scope.launch {
+            val notesWithBonus = when {
+                bonusMinutes > 0 && currentState.sessionNotes.isNotBlank() ->
+                    "${currentState.sessionNotes} (Bonus Overtime: +${bonusMinutes}m)"
+                bonusMinutes > 0 ->
+                    "Bonus Overtime: +${bonusMinutes}m"
+                else -> currentState.sessionNotes
+            }
+
             val session = getRepository(context).recordSession(
                 startTime = sessionStartTimeWall,
                 endTime = endTime,
-                durationMinutes = durationMinutes,
+                durationMinutes = exactMinutes,
                 taskTag = currentState.selectedTaskTag.id,
                 treeSpeciesId = currentState.selectedTreeSpecies.id,
                 isCompleted = true,
-                notes = currentState.sessionNotes
+                notes = notesWithBonus
             )
 
             _timerState.update {
                 it.copy(
                     isRunning = false,
                     isPaused = false,
+                    elapsedSeconds = 0,
                     remainingSeconds = it.totalDurationSeconds,
+                    isOvertime = false,
+                    overtimeSeconds = 0,
                     showCelebrationDialog = true,
+                    showAbandonDialog = false,
                     lastCompletedSession = session,
                     isWithered = false
                 )
@@ -277,18 +376,18 @@ object FocusTimerEngine {
         }
     }
 
-    private fun triggerHaptic(context: Context) {
+    private fun triggerMilestoneHaptic(context: Context) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 vibratorManager?.defaultVibrator?.vibrate(
-                    VibrationEffect.createOneShot(400, VibrationEffect.DEFAULT_AMPLITUDE)
+                    VibrationEffect.createWaveform(longArrayOf(0, 150, 100, 250), -1)
                 )
             } else {
                 @Suppress("DEPRECATION")
                 val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                 @Suppress("DEPRECATION")
-                vibrator?.vibrate(400)
+                vibrator?.vibrate(longArrayOf(0, 150, 100, 250), -1)
             }
         } catch (_: Exception) {
         }
